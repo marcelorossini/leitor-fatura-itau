@@ -6,16 +6,22 @@ import time
 import uuid
 import pytesseract
 import os
+import json
+import re
 
 temp_dir = './temp/'
 input_pdf = "teste.pdf"
 output_name = "output.jpg"
+date_pattern = re.compile(r'^(0[1-9]|[1-2][0-9]|3[0-1])/(0[1-9]|1[0-2])$')
+array_final = []
 
 def main():
     clear_directory(temp_dir)
     generate_jpg()
     encontrar_aparicoes(output_name, './assets/mobile.jpg')
     encontrar_aparicoes(output_name, './assets/online.jpg')
+    json_from_array = json.dumps(array_final)
+    print(json_from_array)
 
 def generate_jpg():
     compression = 'zip'  # "zip", "lzw", "group4" - need binarized image...
@@ -53,15 +59,13 @@ def generate_jpg():
     doc.close()
 
 def encontrar_aparicoes(imagem_grande, imagem_pequena):
-    print('chegou')
     # Carregar as imagens
     cv2_image_main = cv2.imread(imagem_grande)
-    cv2_image_icon = cv2.imread(imagem_pequena,  cv2.IMREAD_GRAYSCALE)
-    img_gray = cv2.cvtColor (cv2_image_main, cv2.COLOR_BGR2GRAY)
+    cv2_image_icon = cv2.imread(imagem_pequena)
 
     # Encontrar correspondências usando a correspondência de características
-    resultado = cv2.matchTemplate(img_gray, cv2_image_icon, cv2.TM_CCOEFF_NORMED)
-    loc = np.where(resultado >= 0.9)  # 0.7 é o limiar de correspondência
+    resultado = cv2.matchTemplate(cv2_image_main, cv2_image_icon, cv2.TM_CCOEFF_NORMED)
+    loc = np.where(resultado >= 0.95)  # 0.7 é o limiar de correspondência
     # Desenhar retângulos ao redor das correspondências encontradas
     for pt in zip(*loc[::-1]):
         temp_name_prefix = temp_dir+str(uuid.uuid4().hex)        
@@ -81,19 +85,36 @@ def encontrar_aparicoes(imagem_grande, imagem_pequena):
 
         cv2_image_value = cv2_image_main[pt[1]:pt[1]+50, pt[0]+850:pt[0]+1000, :] 
         cv2.imwrite(image_value, cv2_image_value) 
+        
+        tesseract_response_date = text_corretion(pytesseract.image_to_string(Image.open(image_date), lang="por"))
+        tesseract_response_title = text_corretion(pytesseract.image_to_string(Image.open(image_title), lang="por"))
+        tesseract_response_group = text_corretion(pytesseract.image_to_string(Image.open(image_group), lang="por"))
+        tesseract_response_value = text_corretion(pytesseract.image_to_string(Image.open(image_value), lang="eng"))
+        print(temp_name_prefix, tesseract_response_value)
 
-        print(pytesseract.image_to_string(Image.open(image_date)))
-        print(pytesseract.image_to_string(Image.open(image_title)))
-        print(pytesseract.image_to_string(Image.open(image_group)))
-        print(pytesseract.image_to_string(Image.open(image_value)))
+        if tesseract_response_date == "" or not date_pattern.match(tesseract_response_date):
+            continue
 
+        new_data = {
+            "date": tesseract_response_date, 
+            "title": tesseract_response_title,
+            "group": tesseract_response_group,
+            "value": tesseract_response_value,
+        }
+        array_final.append(new_data)
 
     # Exibir a imagem resultante
     cv2.imwrite(imagem_grande, cv2_image_main)         
     time.sleep(1)
 
 
-
+def text_corretion(text):
+    text = text.strip()
+    text = text.replace("\r","")
+    text = text.replace("\n","")
+    text = text.replace("   "," ")
+    text = text.replace("  "," ")
+    return text
 
 def clear_directory(directory_path):
     # Check if the directory exists
