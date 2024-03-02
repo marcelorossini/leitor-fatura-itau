@@ -10,18 +10,19 @@ import json
 import re
 
 temp_dir = './temp/'
-input_pdf = "teste.pdf"
+input_pdf = "fatura.pdf"
 output_name = "output.jpg"
 date_pattern = re.compile(r'^(0[1-9]|[1-2][0-9]|3[0-1])/(0[1-9]|1[0-2])$')
 array_final = []
 
 def main():
-    clear_directory(temp_dir)
     generate_jpg()
-    encontrar_aparicoes(output_name, './assets/mobile.jpg')
-    encontrar_aparicoes(output_name, './assets/online.jpg')
+    find_icon(output_name, './assets/mobile.jpg')
+    find_icon(output_name, './assets/online.jpg')
     json_from_array = json.dumps(array_final)
     print(json_from_array)
+    print(sum(c['value'] for c in array_final))
+    clear_directory(temp_dir)
 
 def generate_jpg():
     compression = 'zip'  # "zip", "lzw", "group4" - need binarized image...
@@ -58,14 +59,14 @@ def generate_jpg():
     # Fecha o arquivo PDF
     doc.close()
 
-def encontrar_aparicoes(imagem_grande, imagem_pequena):
+def find_icon(imagem_grande, imagem_pequena):
     # Carregar as imagens
     cv2_image_main = cv2.imread(imagem_grande)
     cv2_image_icon = cv2.imread(imagem_pequena)
 
     # Encontrar correspondências usando a correspondência de características
     resultado = cv2.matchTemplate(cv2_image_main, cv2_image_icon, cv2.TM_CCOEFF_NORMED)
-    loc = np.where(resultado >= 0.95)  # 0.7 é o limiar de correspondência
+    loc = np.where(resultado >= 0.8)  # 0.7 é o limiar de correspondência
     # Desenhar retângulos ao redor das correspondências encontradas
     for pt in zip(*loc[::-1]):
         temp_name_prefix = temp_dir+str(uuid.uuid4().hex)        
@@ -85,21 +86,24 @@ def encontrar_aparicoes(imagem_grande, imagem_pequena):
 
         cv2_image_value = cv2_image_main[pt[1]:pt[1]+50, pt[0]+850:pt[0]+1000, :] 
         cv2.imwrite(image_value, cv2_image_value) 
+
+        cv2.rectangle(cv2_image_main, pt, (pt[0] + 1000, pt[1] + 80), (0, 255, 0), -1)
         
         tesseract_response_date = text_corretion(pytesseract.image_to_string(Image.open(image_date), lang="por"))
         tesseract_response_title = text_corretion(pytesseract.image_to_string(Image.open(image_title), lang="por"))
         tesseract_response_group = text_corretion(pytesseract.image_to_string(Image.open(image_group), lang="por"))
         tesseract_response_value = text_corretion(pytesseract.image_to_string(Image.open(image_value), lang="eng"))
-        print(temp_name_prefix, tesseract_response_value)
 
         if tesseract_response_date == "" or not date_pattern.match(tesseract_response_date):
             continue
+        
+        print(tesseract_response_date, tesseract_response_title, tesseract_response_group, tesseract_response_value)
 
         new_data = {
             "date": tesseract_response_date, 
             "title": tesseract_response_title,
             "group": tesseract_response_group,
-            "value": tesseract_response_value,
+            "value": float(tesseract_response_value.replace(',','.')),
         }
         array_final.append(new_data)
 
@@ -131,14 +135,11 @@ def clear_directory(directory_path):
         try:
             if os.path.isfile(file_path):
                 os.remove(file_path)
-                print(f"Deleted: {file_path}")
             elif os.path.isdir(file_path):
                 # If you want to clear subdirectories as well, uncomment the line below
                 # shutil.rmtree(file_path)
                 print(f"Skipped (subdirectory): {file_path}")
         except Exception as e:
             print(f"Error deleting {file_path}: {e}")
-
-    print(f"The directory '{directory_path}' has been cleared.")
 
 main()
